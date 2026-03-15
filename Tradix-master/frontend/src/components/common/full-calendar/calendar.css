@@ -1,0 +1,37 @@
+:root {
+    --fc-bg-event-opacity: 1.0;
+    --fc-event-text-color: #fff;
+}
+
+.fc-button-primary {
+    @apply bg-white hover:bg-gray-200
+}
+
+.fc-event-title {
+    @apply dark:text-white font-bold
+}
+
+.fc-toolbar-title {
+    font-weight: bold;
+    @apply dark:text-white
+}
+
+.fc-col-header-cell-cushion {
+    @apply dark:text-white
+}
+
+.fc-daygrid-day-number {
+    @apply dark:text-white
+}
+
+.fc-multimonth-title {
+    @apply dark:text-white
+}
+
+.fc-multimonth-daygrid {
+    @apply dark:bg-primary-dark
+}
+
+.fc-day-disabled {
+    @apply dark:bg-gray-600
+}

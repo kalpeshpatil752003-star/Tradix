@@ -1,0 +1,38 @@
+.preloader {
+    height: 100vh;
+    height: calc(1vh * 100);
+    width: 100%;
+    background: #000; /* Replacing $black with black hex */
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff; /* Replacing $white with white hex */
+    overflow: hidden !important;
+  }
+  
+  .preloader .texts-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+    width: 280px;
+    font-size: 20px;
+    overflow: hidden;
+    font-weight: 800;
+    opacity: 0;
+    color: #fff;
+  }
+  
+  /* Responsive for smaller screens */
+  @media (max-width: 600px) {
+    .preloader .texts-container {
+      font-size: 17px;
+      width: 240px;
+    }
+  }
+  
