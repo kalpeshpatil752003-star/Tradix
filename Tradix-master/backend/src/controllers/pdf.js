@@ -11,6 +11,22 @@ dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Add this helper function at the top
+const callGeminiWithRetry = async (model, content, retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await model.generateContent(content);
+    } catch (err) {
+      if (err.message.includes("503") && i < retries - 1) {
+        console.log(`Gemini busy, retrying in ${(i+1) * 2}s...`);
+        await new Promise(r => setTimeout(r, (i+1) * 2000));
+      } else {
+        throw err;
+      }
+    }
+  }
+};
+
 const SYSTEM_PROMPT = `You are a trading statement parser for an app called Star Tradix.
 The user will upload a broker trade statement PDF. Extract ALL trades from it.
 

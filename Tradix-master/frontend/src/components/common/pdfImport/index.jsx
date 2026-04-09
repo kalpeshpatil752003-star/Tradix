@@ -1,38 +1,41 @@
-import React, { useState, useRef } from 'react';
-import { useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
-import { AccountDropdown } from 'components/common/dropdown/accountDropdown';
+import React, { useState, useRef } from "react";
+import { useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
+import { AccountDropdown } from "components/common/dropdown/accountDropdown";
 
-// ── Broker configs ─────────────────────────────────────────────────────────
-const BROKERS = ["Zerodha", "Upstox", "Binance", "Angel One", "Groww", "Dhan", "Other"];
-
-const STATUS = {
-  idle: { color: "#64748b", label: "" },
-  uploading: { color: "#f59e0b", label: "Reading PDF..." },
-  parsing: { color: "#6366f1", label: "AI Analyzing..." },
-  success: { color: "#22c55e", label: "Trades Extracted!" },
-  error: { color: "#ef4444", label: "Failed. Try again." },
-};
+// Standardized broker list
+const BROKERS = [
+  "Zerodha",
+  "Upstox",
+  "Binance",
+  "Angel One",
+  "Groww",
+  "Dhan",
+  "Other",
+];
 
 export default function PdfImport() {
   const [broker, setBroker] = useState("");
   const [account, setAccount] = useState("");
   const [file, setFile] = useState(null);
+  const [description, setDescription] = useState("");
   const [status, setStatus] = useState("idle");
   const [trades, setTrades] = useState([]);
   const [summary, setSummary] = useState("");
-  const [dragOver, setDragOver] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
   const fileRef = useRef();
   const token = useSelector((state) => state.auth?.accessToken);
   const navigate = useNavigate();
 
   const handleFile = (f) => {
     if (!f) return;
+
     if (f.type !== "application/pdf") {
       setErrorMsg("Only PDF files are supported.");
       return;
     }
+
     setErrorMsg("");
     setFile(f);
     setTrades([]);
@@ -40,10 +43,15 @@ export default function PdfImport() {
     setStatus("idle");
   };
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    handleFile(e.dataTransfer.files[0]);
+  const handleReset = () => {
+    setBroker("");
+    setAccount("");
+    setFile(null);
+    setDescription("");
+    setTrades([]);
+    setSummary("");
+    setStatus("idle");
+    setErrorMsg("");
   };
 
   const handleSubmit = async () => {
@@ -59,17 +67,24 @@ export default function PdfImport() {
       formData.append("pdf", file);
       formData.append("broker", broker);
       formData.append("accountId", account);
+      formData.append("description", description);
 
       setStatus("parsing");
 
-      const res = await fetch(`${process.env.REACT_APP_BASE_URL}/voice/parse-pdf`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        credentials: "include",
-        body: formData,
-      });
+      const res = await fetch(
+        `${process.env.REACT_APP_BASE_URL}/voice/parse-pdf`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          body: formData,
+        }
+      );
 
       if (!res.ok) throw new Error("Server error");
+
       const data = await res.json();
 
       if (data.trades && data.trades.length > 0) {
@@ -77,7 +92,9 @@ export default function PdfImport() {
         setSummary(data.summary || "");
         setStatus("success");
       } else {
-        setErrorMsg("No trades found in this PDF. Make sure it's a trade statement.");
+        setErrorMsg(
+          "No trades found in this PDF. Make sure it's a trade statement."
+        );
         setStatus("error");
       }
     } catch (err) {
@@ -88,280 +105,219 @@ export default function PdfImport() {
 
   const handleImportAll = async () => {
     try {
-      const res = await fetch(`${process.env.REACT_APP_BASE_URL}/voice/import-pdf-trades`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
-        body: JSON.stringify({ trades, accountId: account }),
-      });
+      const res = await fetch(
+        `${process.env.REACT_APP_BASE_URL}/voice/import-pdf-trades`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          body: JSON.stringify({ trades, accountId: account }),
+        }
+      );
+
       if (!res.ok) throw new Error();
+
       navigate("/dashboard");
     } catch {
       setErrorMsg("Failed to import trades.");
     }
   };
 
-  const st = STATUS[status];
-
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Syne:wght@600;700&display=swap');
-        .pdf-wrap * { box-sizing: border-box; }
-        .pdf-wrap { font-family: 'DM Sans', sans-serif; }
-        .pdf-card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 24px 32px; }
-        .dark .pdf-card { background: #1f2937; }
-        .pdf-drop {
-          border: 2px dashed #cbd5e1; border-radius: 12px; padding: 40px 20px;
-          text-align: center; cursor: pointer; transition: all 0.2s;
-          background: #f8fafc;
-        }
-        .dark .pdf-drop { background: #111827; border-color: #374151; }
-        .pdf-drop.dragover { border-color: #6366f1; background: #eef2ff; }
-        .dark .pdf-drop.dragover { background: #1e1b4b; }
-        .pdf-drop:hover { border-color: #6366f1; }
-        .pdf-badge {
-          display: inline-flex; align-items: center; gap: 6px;
-          background: #eef2ff; color: #4f46e5; border-radius: 8px;
-          padding: 6px 12px; font-size: 13px; font-weight: 500;
-        }
-        .dark .pdf-badge { background: #1e1b4b; color: #818cf8; }
-        .pdf-status-dot {
-          width: 8px; height: 8px; border-radius: 50%;
-          display: inline-block; margin-right: 6px;
-          animation: pulse-dot 1.5s ease-in-out infinite;
-        }
-        @keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
-        .pdf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        .pdf-table th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; }
-        .dark .pdf-table th { background: #111827; color: #94a3b8; }
-        .pdf-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #1e293b; }
-        .dark .pdf-table td { border-color: #1f2937; color: #e2e8f0; }
-        .pdf-table tr:hover td { background: #f8fafc; }
-        .dark .pdf-table tr:hover td { background: #111827; }
-        .tag-buy { background: #dcfce7; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-        .tag-sell { background: #fee2e2; color: #dc2626; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-        .pdf-btn {
-          padding: 10px 24px; border-radius: 8px; font-size: 14px;
-          font-weight: 600; cursor: pointer; border: none; transition: all 0.2s;
-          font-family: 'DM Sans', sans-serif;
-        }
-        .pdf-btn-primary { background: #4f46e5; color: white; }
-        .pdf-btn-primary:hover { background: #4338ca; transform: translateY(-1px); }
-        .pdf-btn-primary:disabled { background: #94a3b8; cursor: not-allowed; transform: none; }
-        .pdf-btn-outline { background: transparent; color: #4f46e5; border: 1.5px solid #4f46e5; }
-        .pdf-btn-outline:hover { background: #eef2ff; }
-        .pdf-select {
-          width: 100%; padding: 10px 14px; border-radius: 8px;
-          border: 1.5px solid #e2e8f0; font-size: 14px; background: white;
-          color: #1e293b; font-family: 'DM Sans', sans-serif;
-          transition: border-color 0.2s; outline: none;
-        }
-        .dark .pdf-select { background: #111827; border-color: #374151; color: #e2e8f0; }
-        .pdf-select:focus { border-color: #6366f1; }
-        .pdf-label { font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; display: block; }
-        .dark .pdf-label { color: #9ca3af; }
-        .pdf-summary {
-          background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;
-          padding: 16px 20px; margin-bottom: 20px;
-        }
-        .dark .pdf-summary { background: #052e16; border-color: #166534; }
-        .pdf-error { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 16px; color: #dc2626; font-size: 13px; }
-        .dark .pdf-error { background: #1c0a0a; border-color: #991b1b; }
-      `}</style>
+    <div>
+      {/* Header */}
+      <div className="mb-6 border-b pb-4 dark:border-gray-700">
+        <h2 className="text-lg font-semibold dark:text-white">
+          Import Your Trades
+        </h2>
+        <p className="text-sm text-gray-400">
+          Upload your broker trade statement (PDF)
+        </p>
+      </div>
 
-      <div className="pdf-wrap">
-        <div className="pdf-card dark:bg-main-dark">
-          {/* Header */}
-          <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 16, marginBottom: 24 }} className="dark:border-gray-600">
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {/* PDF Icon */}
-              <div style={{ width: 36, height: 36, background: "#eef2ff", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                  <polyline points="14 2 14 8 20 8"/>
-                  <line x1="9" y1="15" x2="15" y2="15"/>
-                  <line x1="9" y1="11" x2="15" y2="11"/>
-                </svg>
-              </div>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1e293b", margin: 0, fontFamily: "Syne, sans-serif" }} className="dark:text-white">
-                  AI PDF Trade Import
-                </h2>
-                <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
-                  Upload your broker statement — AI extracts all trades automatically
-                </p>
-              </div>
-            </div>
+      {/* Form Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label className="block mb-2 text-sm font-medium dark:text-white">
+            Select Broker
+          </label>
 
-            {/* Supported brokers */}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14 }}>
-              {BROKERS.map(b => (
-                <span key={b} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, background: "#f1f5f9", color: "#475569", fontWeight: 500 }}
-                  className="dark:bg-gray-700 dark:text-gray-300">
-                  {b}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Form */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
-            <div>
-              <label className="pdf-label dark:text-gray-400">Select Broker</label>
-              <select className="pdf-select" value={broker} onChange={e => setBroker(e.target.value)}>
-                <option value="">Select Broker</option>
-                {BROKERS.map(b => <option key={b}>{b}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="pdf-label dark:text-gray-400">Select Account</label>
-              <AccountDropdown
-                label=""
-                htmlName="account"
-                onChange={e => setAccount(e.target.value)}
-                value={account}
-              />
-            </div>
-          </div>
-
-          {/* Drop Zone */}
-          <div
-            className={`pdf-drop${dragOver ? " dragover" : ""}`}
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileRef.current.click()}
+          <select
+            className="w-full p-2.5 rounded-lg border border-gray-300 
+             text-gray-900 dark:text-white
+             bg-gray-50 dark:bg-gray-700 
+             dark:border-gray-600"
+            value={broker}
+            onChange={(e) => setBroker(e.target.value)}
           >
-            <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+            <option value="">Select Broker</option>
+            {BROKERS.map((b) => (
+              <option key={b}>{b}</option>
+            ))}
+          </select>
+        </div>
 
-            {file ? (
-              <div>
-                <div className="pdf-badge">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                  </svg>
-                  {file.name}
-                </div>
-                <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 8 }}>
-                  {(file.size / 1024).toFixed(1)} KB — click to change
-                </p>
-              </div>
-            ) : (
-              <div>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" style={{ margin: "0 auto 12px" }}>
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
-                <p style={{ fontSize: 14, fontWeight: 600, color: "#475569", margin: "0 0 4px" }} className="dark:text-gray-300">
-                  Drop your PDF here or click to browse
-                </p>
-                <p style={{ fontSize: 12, color: "#94a3b8", margin: 0 }}>
-                  Supports broker trade statements (PDF only)
-                </p>
-              </div>
-            )}
-          </div>
+        <div>
+          <label className="block mb-2 text-sm font-medium dark:text-white">
+            Select Account
+          </label>
 
-          {/* Error */}
-          {errorMsg && (
-            <div className="pdf-error" style={{ marginTop: 12 }}>
-              ⚠️ {errorMsg}
-            </div>
-          )}
-
-          {/* Status */}
-          {status !== "idle" && status !== "error" && (
-            <div style={{ display: "flex", alignItems: "center", marginTop: 12, fontSize: 13, color: st.color, fontWeight: 500 }}>
-              <span className="pdf-status-dot" style={{ background: st.color }} />
-              {st.label}
-            </div>
-          )}
-
-          {/* Submit */}
-          {status !== "success" && (
-            <div style={{ marginTop: 20 }}>
-              <button
-                className="pdf-btn pdf-btn-primary"
-                onClick={handleSubmit}
-                disabled={status === "uploading" || status === "parsing"}
-              >
-                {status === "parsing" ? "Analyzing..." : status === "uploading" ? "Reading PDF..." : "Extract Trades"}
-              </button>
-            </div>
-          )}
-
-          {/* Results */}
-          {status === "success" && trades.length > 0 && (
-            <div style={{ marginTop: 24 }}>
-              {/* Summary */}
-              {summary && (
-                <div className="pdf-summary">
-                  <p style={{ fontSize: 13, fontWeight: 600, color: "#166534", margin: "0 0 4px", fontFamily: "Syne, sans-serif" }} className="dark:text-green-400">
-                    ✅Summary
-                  </p>
-                  <p style={{ fontSize: 13, color: "#15803d", margin: 0 }} className="dark:text-green-300">
-                    {summary}
-                  </p>
-                </div>
-              )}
-
-              {/* Trades table */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#1e293b", margin: 0, fontFamily: "Syne, sans-serif" }} className="dark:text-white">
-                  {trades.length} Trades Found
-                </h3>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button className="pdf-btn pdf-btn-outline" onClick={() => { setStatus("idle"); setFile(null); setTrades([]); }}>
-                    Cancel
-                  </button>
-                  <button className="pdf-btn pdf-btn-primary" onClick={handleImportAll}>
-                    Import All Trades
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ overflowX: "auto", borderRadius: 10, border: "1px solid #e2e8f0" }} className="dark:border-gray-700">
-                <table className="pdf-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Symbol</th>
-                      <th>Action</th>
-                      <th>Qty</th>
-                      <th>Entry Price</th>
-                      <th>Exit Price</th>
-                      <th>Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trades.map((t, i) => (
-                      <tr key={i}>
-                        <td style={{ color: "#94a3b8" }}>{i + 1}</td>
-                        <td style={{ fontWeight: 600 }}>{t.symbol || "-"}</td>
-                        <td>
-                          <span className={t.action?.toUpperCase() === "SELL" ? "tag-sell" : "tag-buy"}>
-                            {t.action?.toUpperCase() || "BUY"}
-                          </span>
-                        </td>
-                        <td>{t.quantity || "-"}</td>
-                        <td>{t.entryPrice || "-"}</td>
-                        <td>{t.exitPrice || "-"}</td>
-                        <td style={{ color: "#94a3b8", fontSize: 12 }}>{t.date || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          <AccountDropdown
+            label=""
+            htmlName="account"
+            onChange={(e) => setAccount(e.target.value)}
+            value={account}
+          />
         </div>
       </div>
-    </>
+
+      {/* File Upload */}
+      <div className="mb-4">
+        <label className="block mb-2 text-sm font-medium dark:text-white">
+          Upload Your PDF File
+        </label>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf"
+          onChange={(e) => handleFile(e.target.files[0])}
+          className="block w-full text-sm 
+             text-gray-900 dark:text-white
+             border border-gray-300 
+             rounded-lg cursor-pointer 
+             bg-gray-50 dark:bg-gray-700 
+             dark:border-gray-600"
+        />
+
+        {file && (
+          <p className="text-xs text-gray-400 mt-2">
+            Selected: {file.name} ({(file.size / 1024).toFixed(1)} KB)
+          </p>
+        )}
+      </div>
+
+      {/* Description */}
+      <div className="mb-4">
+        <label className="block mb-2 text-sm font-medium dark:text-white">
+          Description
+        </label>
+
+        <textarea
+          rows="4"
+          placeholder="Add Description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="block w-full p-2.5 text-sm text-gray-900 bg-gray-50 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600"
+        />
+      </div>
+
+      {/* Error Message */}
+      {errorMsg && (
+        <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
+          ⚠️ {errorMsg}
+        </div>
+      )}
+
+      {/* Buttons */}
+      {status !== "success" && (
+        <div className="flex gap-3 mt-4">
+          <button
+            className="px-5 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+            onClick={handleReset}
+          >
+            Reset
+          </button>
+
+          <button
+            className="px-5 py-2 
+             bg-white text-black 
+             rounded-lg 
+             hover:bg-gray-100
+             dark:bg-white dark:text-black
+             disabled:opacity-60"
+            onClick={handleSubmit}
+            disabled={status === "uploading" || status === "parsing"}
+          >
+            {status === "parsing"
+              ? "Analysing..."
+              : status === "uploading"
+              ? "Reading PDF..."
+              : "Extract Trades"}
+          </button>
+        </div>
+      )}
+
+      {/* Results */}
+      {status === "success" && trades.length > 0 && (
+        <div className="mt-6">
+          {summary && (
+            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="font-semibold text-green-700">Summary</p>
+              <p className="text-sm text-green-600">{summary}</p>
+            </div>
+          )}
+
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold dark:text-white">
+              {trades.length} Trades Found
+            </h3>
+
+            <div className="flex gap-2">
+              <button
+                className="px-4 py-2 border border-gray-400 rounded-lg"
+                onClick={handleReset}
+              >
+                Cancel
+              </button>
+
+              <button
+                className="px-4 py-2 bg-primary-100 text-white rounded-lg"
+                onClick={handleImportAll}
+              >
+                Import All Trades
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border rounded-lg">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100 dark:bg-gray-800">
+                <tr>
+                  <th className="p-2 text-left">#</th>
+                  <th className="p-2 text-left">Symbol</th>
+                  <th className="p-2 text-left">Action</th>
+                  <th className="p-2 text-left">Qty</th>
+                  <th className="p-2 text-left">Entry</th>
+                  <th className="p-2 text-left">Exit</th>
+                  <th className="p-2 text-left">Date</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {trades.map((t, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="p-2">{i + 1}</td>
+                    <td className="p-2 font-medium">{t.symbol || "-"}</td>
+                    <td className="p-2">
+                      {t.action?.toUpperCase() || "BUY"}
+                    </td>
+                    <td className="p-2">{t.quantity || "-"}</td>
+                    <td className="p-2">{t.entryPrice || "-"}</td>
+                    <td className="p-2">{t.exitPrice || "-"}</td>
+                    <td className="p-2 text-gray-400 text-xs">
+                      {t.date || "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

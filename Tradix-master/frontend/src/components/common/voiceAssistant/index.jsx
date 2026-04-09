@@ -2,10 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 
-
-
-
-
 // ─── Route map for navigation commands ───────────────────────────────────────
 const ROUTE_MAP = {
   dashboard: "/dashboard",
@@ -31,6 +27,9 @@ const ROUTE_MAP = {
   "trade statistics": "/trade-statistics",
 };
 
+// ─── How long of silence (ms) before we auto-stop listening ──────────────────
+const SILENCE_TIMEOUT_MS = 2500; // 2.5 seconds of silence → auto-submit
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function VoiceAssistant({ onTradeData }) {
   const [isListening, setIsListening] = useState(false);
@@ -42,6 +41,8 @@ export default function VoiceAssistant({ onTradeData }) {
 
   const recognitionRef = useRef(null);
   const feedbackTimerRef = useRef(null);
+  const silenceTimerRef = useRef(null);   // ✅ NEW: tracks silence
+  const finalTranscriptRef = useRef("");  // ✅ NEW: accumulates across pauses
   const rippleCountRef = useRef(0);
   const navigate = useNavigate();
   const token = useSelector((state) => state.auth?.accessToken);
@@ -58,38 +59,82 @@ export default function VoiceAssistant({ onTradeData }) {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true;         // ✅ CHANGED: keep mic open
     recognition.interimResults = true;
     recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
       setStatus("listening");
       setTranscript("");
-      setFeedback("Listening...");
+      finalTranscriptRef.current = "";
+      setFeedback("Listening… say your command, then pause or press Done.");
     };
 
     recognition.onresult = (e) => {
-      const current = Array.from(e.results)
-        .map((r) => r[0].transcript)
-        .join("");
-      setTranscript(current);
+      let interimText = "";
+      let newFinal = "";
+
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const result = e.results[i];
+        if (result.isFinal) {
+          newFinal += result[0].transcript + " ";
+        } else {
+          interimText += result[0].transcript;
+        }
+      }
+
+      // ✅ Accumulate final words; show interim in real-time
+      if (newFinal) {
+        finalTranscriptRef.current += newFinal;
+      }
+      const displayText = (finalTranscriptRef.current + interimText).trim();
+      setTranscript(displayText);
+
+      // ✅ Reset silence timer every time speech is detected
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        // User stopped talking for SILENCE_TIMEOUT_MS → auto-submit
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+      }, SILENCE_TIMEOUT_MS);
     };
 
     recognition.onend = () => {
+      clearTimeout(silenceTimerRef.current);
       setIsListening(false);
-      setStatus("processing");
-      setFeedback("Processing...");
+      const finalText = finalTranscriptRef.current.trim();
+      if (finalText) {
+        setStatus("processing");
+        setFeedback("Processing…");
+        setTranscript(finalText);
+      } else {
+        setFeedback("Nothing heard. Try again.");
+        setStatus("idle");
+        autoReset(2000);
+      }
     };
 
     recognition.onerror = (e) => {
+      clearTimeout(silenceTimerRef.current);
+      // ✅ "no-speech" is not fatal when continuous=true, ignore it
+      if (e.error === "no-speech") return;
       setIsListening(false);
       setStatus("error");
-      setFeedback(e.error === "not-allowed" ? "Mic access denied." : "Couldn't hear you. Try again.");
+      setFeedback(
+        e.error === "not-allowed"
+          ? "Mic access denied."
+          : "Couldn't hear you. Try again."
+      );
       autoReset(3000);
     };
 
     recognitionRef.current = recognition;
-    return () => recognition.abort();
+    return () => {
+      clearTimeout(silenceTimerRef.current);
+      recognition.abort();
+    };
   }, []);
 
   // ─── Process transcript after listening ends ───────────────────────────────
@@ -113,18 +158,18 @@ export default function VoiceAssistant({ onTradeData }) {
     }, delay);
   };
 
-  // ─── Send to Claude API ────────────────────────────────────────────────────
+  // ─── Send to backend API ───────────────────────────────────────────────────
   const handleVoiceCommand = async (text) => {
     try {
       const response = await fetch(`${process.env.REACT_APP_BASE_URL}/voice/parse`, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}` // ✅ send token
-      },
-      credentials: "include",
-      body: JSON.stringify({ transcript: text }),
-    });
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: JSON.stringify({ transcript: text }),
+      });
 
       if (!response.ok) throw new Error("API error");
 
@@ -133,15 +178,14 @@ export default function VoiceAssistant({ onTradeData }) {
 
       if (intent === "navigate" && route && ROUTE_MAP[route]) {
         setStatus("success");
-        setFeedback(`Navigating to ${route}...`);
+        setFeedback(`Navigating to ${route}…`);
         setTimeout(() => navigate(ROUTE_MAP[route]), 800);
         autoReset(2000);
       } else if (intent === "log_trade" && tradeData) {
         setStatus("success");
         setFeedback("Trade details captured!");
         if (onTradeData) onTradeData(tradeData);
-        // ✅ Correct
-        setTimeout(() => navigate("/add-trade", { state: { voiceData: tradeData } }), 800); 
+        setTimeout(() => navigate("/add-trade", { state: { voiceData: tradeData } }), 800);
         autoReset(2000);
       } else {
         setStatus("error");
@@ -158,11 +202,10 @@ export default function VoiceAssistant({ onTradeData }) {
   // ─── Toggle mic ───────────────────────────────────────────────────────────
   const toggleListening = useCallback(() => {
     if (isListening) {
+      // ✅ "Done" button — manually stop and submit whatever was captured
+      clearTimeout(silenceTimerRef.current);
       recognitionRef.current?.stop();
       setIsListening(false);
-      setStatus("idle");
-      setFeedback("");
-      setIsExpanded(false);
       return;
     }
 
@@ -190,164 +233,152 @@ export default function VoiceAssistant({ onTradeData }) {
     idle: { bg: "#1a1a2e", border: "#4f46e5", glow: "rgba(79,70,229,0.4)" },
     listening: { bg: "#0f172a", border: "#06b6d4", glow: "rgba(6,182,212,0.5)" },
     processing: { bg: "#0f172a", border: "#f59e0b", glow: "rgba(245,158,11,0.4)" },
-    success: { bg: "#052e16", border: "#22c55e", glow: "rgba(34,197,94,0.5)" },
-    error: { bg: "#1c0a0a", border: "#ef4444", glow: "rgba(239,68,68,0.4)" },
+    success: { bg: "#0f172a", border: "#22c55e", glow: "rgba(34,197,94,0.4)" },
+    error: { bg: "#0f172a", border: "#ef4444", glow: "rgba(239,68,68,0.4)" },
   };
 
-  const colors = statusColors[status];
+  const colors = statusColors[status] || statusColors.idle;
 
   return (
     <>
-      {/* ── Global Styles ── */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700&display=swap');
-
-        .va-wrap * { box-sizing: border-box; font-family: 'DM Mono', monospace; }
-
-        .va-btn {
-          width: 56px; height: 56px; border-radius: 50%; border: 2px solid;
-          cursor: pointer; display: flex; align-items: center; justify-content: center;
-          transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-          position: relative; overflow: visible; outline: none;
+        .va-wrapper {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          z-index: 9999;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 10px;
         }
-        .va-btn:hover { transform: scale(1.08); }
-        .va-btn:active { transform: scale(0.95); }
-
+        .va-card {
+          background: #0f172a;
+          border-radius: 16px;
+          padding: 14px 18px;
+          min-width: 260px;
+          max-width: 320px;
+          box-shadow: 0 0 20px rgba(0,0,0,0.5);
+          border: 1px solid rgba(255,255,255,0.08);
+          transition: all 0.3s ease;
+        }
+        .va-label {
+          font-size: 11px;
+          color: #94a3b8;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+        .va-feedback {
+          font-size: 13px;
+          color: #e2e8f0;
+          min-height: 18px;
+        }
+        .va-transcript {
+          font-size: 13px;
+          color: #7dd3fc;
+          margin-top: 6px;
+          font-style: italic;
+          word-break: break-word;
+        }
+        .va-hint {
+          font-size: 11px;
+          color: #475569;
+          margin-top: 6px;
+        }
+        .va-done-btn {
+          margin-top: 10px;
+          width: 100%;
+          padding: 7px 0;
+          border-radius: 8px;
+          background: #06b6d4;
+          color: #0f172a;
+          font-weight: 700;
+          font-size: 13px;
+          border: none;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .va-done-btn:hover { background: #22d3ee; }
+        .va-mic-btn {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          border: 2px solid;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.3s ease;
+          position: relative;
+          overflow: visible;
+        }
         .va-ripple {
-          position: absolute; border-radius: 50%; border: 2px solid currentColor;
-          width: 56px; height: 56px; top: 0; left: 0;
-          animation: va-ripple-anim 2s ease-out forwards;
+          position: absolute;
+          border-radius: 50%;
+          animation: va-ripple-anim 2s linear infinite;
           pointer-events: none;
         }
         @keyframes va-ripple-anim {
-          0%   { transform: scale(1); opacity: 0.8; }
-          100% { transform: scale(3); opacity: 0; }
-        }
-
-        .va-pulse { animation: va-pulse-anim 1.5s ease-in-out infinite; }
-        @keyframes va-pulse-anim {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.06); }
-        }
-
-        .va-panel {
-          position: absolute; bottom: 70px; right: 0;
-          background: #0d0d1a; border: 1px solid;
-          border-radius: 16px; padding: 14px 18px;
-          min-width: 240px; max-width: 300px;
-          transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-          transform-origin: bottom right;
-        }
-        .va-panel-enter { animation: va-panel-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
-        @keyframes va-panel-in {
-          from { opacity: 0; transform: scale(0.8) translateY(8px); }
-          to   { opacity: 1; transform: scale(1) translateY(0); }
-        }
-
-        .va-transcript {
-          font-size: 11px; color: #94a3b8; margin-top: 6px;
-          line-height: 1.5; word-break: break-word;
-          font-style: italic;
-        }
-        .va-feedback {
-          font-size: 12px; font-weight: 500; letter-spacing: 0.02em;
-        }
-        .va-label {
-          font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
-          color: #475569; margin-bottom: 4px;
-          font-family: 'Syne', sans-serif;
-        }
-        .va-wave {
-          display: flex; align-items: center; gap: 3px; height: 20px; margin-top: 8px;
-        }
-        .va-bar {
-          width: 3px; border-radius: 2px; background: #06b6d4;
-          animation: va-bar-bounce 0.8s ease-in-out infinite;
-        }
-        .va-bar:nth-child(1) { animation-delay: 0s;    height: 8px; }
-        .va-bar:nth-child(2) { animation-delay: 0.1s;  height: 16px; }
-        .va-bar:nth-child(3) { animation-delay: 0.2s;  height: 12px; }
-        .va-bar:nth-child(4) { animation-delay: 0.3s;  height: 20px; }
-        .va-bar:nth-child(5) { animation-delay: 0.15s; height: 10px; }
-        @keyframes va-bar-bounce {
-          0%, 100% { transform: scaleY(0.4); }
-          50%       { transform: scaleY(1); }
+          0% { width: 56px; height: 56px; opacity: 0.5; top: -0px; left: -0px; }
+          100% { width: 100px; height: 100px; opacity: 0; top: -22px; left: -22px; }
         }
       `}</style>
 
-      {/* ── Container ── */}
-      <div
-        className="va-wrap"
-        style={{
-          position: "fixed", bottom: 28, right: 28, zIndex: 9999,
-          display: "flex", flexDirection: "column", alignItems: "flex-end",
-        }}
-      >
-        {/* ── Feedback Panel ── */}
+      <div className="va-wrapper">
         {isExpanded && (
-          <div
-            className="va-panel va-panel-enter"
-            style={{ borderColor: colors.border, boxShadow: `0 0 24px ${colors.glow}` }}
-          >
+          <div className="va-card">
             <div className="va-label">Star Tradix Voice</div>
-
-            <div className="va-feedback" style={{ color: colors.border }}>
-              {feedback || "Ready"}
-            </div>
-
-            {status === "listening" && (
-              <div className="va-wave">
-                {[...Array(5)].map((_, i) => <div key={i} className="va-bar" />)}
-              </div>
-            )}
+            <div className="va-feedback">{feedback}</div>
 
             {transcript && (
               <div className="va-transcript">"{transcript}"</div>
             )}
 
             {status === "idle" && !transcript && (
-              <div style={{ marginTop: 8, fontSize: 10, color: "#475569", lineHeight: 1.6 }}>
-                Try: <span style={{ color: "#64748b" }}>"go to journal"</span><br />
-                or: <span style={{ color: "#64748b" }}>"bought 50 AAPL at 180"</span>
+              <div className="va-hint">
+                Try: "buy 50 RELIANCE at 2400" or "go to analytics"
               </div>
+            )}
+
+            {/* ✅ Show Done button while actively listening */}
+            {status === "listening" && (
+              <button className="va-done-btn" onClick={toggleListening}>
+                ✓ Done
+              </button>
             )}
           </div>
         )}
 
-        {/* ── Mic Button ── */}
         <button
-          className={`va-btn ${isListening ? "va-pulse" : ""}`}
+          className="va-mic-btn"
           onClick={toggleListening}
           title="Voice Assistant"
           style={{
             background: colors.bg,
             borderColor: colors.border,
-            boxShadow: `0 0 20px ${colors.glow}, 0 4px 16px rgba(0,0,0,0.4)`,
-            color: colors.border,
+            boxShadow: `0 0 16px ${colors.glow}`,
           }}
         >
-          {/* Ripples */}
           {ripples.map((id) => (
-            <span key={id} className="va-ripple" style={{ color: colors.border }} />
+            <span
+              key={id}
+              className="va-ripple"
+              style={{ border: `2px solid ${colors.border}` }}
+            />
           ))}
-
-          {/* Icon */}
-          {status === "processing" ? (
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83">
-                <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
-              </path>
-            </svg>
-          ) : status === "success" ? (
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="20 6 9 17 4 12"/>
+          {isListening ? (
+            // Stop icon
+            <svg width="22" height="22" viewBox="0 0 24 24" fill={colors.border}>
+              <rect x="6" y="6" width="12" height="12" rx="2" />
             </svg>
           ) : (
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="9" y="2" width="6" height="12" rx="3"/>
-              <path d="M5 10a7 7 0 0 0 14 0"/>
-              <line x1="12" y1="19" x2="12" y2="22"/>
-              <line x1="8" y1="22" x2="16" y2="22"/>
+            // Mic icon
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={colors.border} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+              <line x1="8" y1="22" x2="16" y2="22" />
             </svg>
           )}
         </button>

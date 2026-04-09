@@ -58,8 +58,8 @@ const ImportTrade = () => {
       <div className="flex flex-col gap-6">
 
         {/* Tab switcher */}
-        <div style={{ display: "flex", gap: 8, background: "#f8fafc", padding: 6, borderRadius: 10, width: "fit-content" }}
-          className="dark:bg-gray-800">
+        <div style={{ display: "flex", gap: 8, padding: 6, borderRadius: 10, width: "fit-content" }}
+          className="bg-gray-800">
           <button className={`tab-btn ${activeTab === "excel" ? "active" : "inactive"}`} onClick={() => setActiveTab("excel")}>
              Excel Import
           </button>
@@ -110,8 +110,10 @@ const ImportTrade = () => {
 
         {/* PDF Import */}
         {activeTab === "pdf" && (
-          <div className="w-full max-w-3xl">
-            <PdfImport />
+          <div className="flex">
+            <div className="w-full max-w-3xl p-6 mt-2 sm:p-8 bg-white rounded-lg shadow dark:bg-main-dark">
+              <PdfImport />
+            </div>
           </div>
         )}
 
