@@ -11,7 +11,7 @@ Today's date will be provided in the transcript as context.
 
 1. NAVIGATE — user wants to go to a page
 Return: { "intent": "navigate", "route": "<route_name>" }
-Valid routes: dashboard, analytics, journal, calendar, trades, add trade, new trade, import trade, settings, library, backtester, tracking, statistics
+Valid routes: dashboard, analytics, journal, calendar, trades, add trade, new trade, import trade, import trades, pdf import, import pdf, settings, library, backtester, tracking, statistics
 
 2. LOG_TRADE — user wants to log a trade
 Return: { "intent": "log_trade", "tradeData": { "symbol": "", "action": "buy|sell", "quantity": 0, "entryPrice": 0, "stopLoss": 0, "takeProfit": 0, "entryDate": "", "exitDate": "", "account": "", "notes": "" } }

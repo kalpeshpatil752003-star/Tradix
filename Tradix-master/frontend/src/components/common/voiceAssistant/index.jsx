@@ -197,6 +197,7 @@ export default function VoiceAssistant({ onTradeData }) {
       const { intent, route, tradeData, account, message } = data;
 
       if (intent === "navigate" && route && ROUTE_MAP[route]) {
+        console.log("ROUTE:", route, "→", ROUTE_MAP[route]);
         setStatus("success");
         setFeedback(`Navigating to ${route}…`);
         setTimeout(() => navigate(ROUTE_MAP[route]), 800);
