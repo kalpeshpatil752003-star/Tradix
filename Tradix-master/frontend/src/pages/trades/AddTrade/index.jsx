@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
 import { useLocation } from 'react-router-dom';
 import { BiChevronDown, BiChevronUp } from "react-icons/bi";
 import InputField from 'components/common/inputs/InputField';
@@ -16,8 +17,8 @@ const AddTrade = () => {
     const location = useLocation();
     const tradeId = new URLSearchParams(location.search).get('id');
     const voiceData = location.state?.voiceData
-
-    const { data: TradeInfo, isLoading: isLoadingTrade } = useGetTradeDetailsQuery(tradeId, {
+    const accountInfo = useSelector((state) => state.account?.accountInfo || []);
+    const { data: TradeInfo, } = useGetTradeDetailsQuery(tradeId, {
         skip: !tradeId,
     });
 
@@ -33,20 +34,35 @@ const AddTrade = () => {
         },
     });
 
-    const [addUpdateTrade, { isLoading }] = useAddUpdateTradeMutation();
+    const [addUpdateTrade] = useAddUpdateTradeMutation();
 
     useEffect(() => {
-    if (voiceData) {
-        setValues(prev => ({
-            ...prev,
-            Symbol: voiceData.symbol || '',
-            Action: voiceData.action?.toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
-            Quantity: voiceData.quantity || '',
-            EntryPrice: voiceData.entryPrice || '',
-            StopLoss: voiceData.stopLoss || '',
-            ExitPrice: voiceData.takeProfit || '',
-        }));
-     }
+        if (voiceData) {
+            // ✅ Match account name to AccountId if voice provided one
+            let accountId = '';
+            if (voiceData.account && accountInfo.length) {
+                const lower = voiceData.account.toLowerCase().trim();
+                const matched = accountInfo.find(a =>
+                    a.AccountName.toLowerCase() === lower ||
+                    a.AccountName.toLowerCase().includes(lower) ||
+                    lower.includes(a.AccountName.toLowerCase())
+                );
+                if (matched) accountId = String(matched.AccountId);
+            }
+    
+            setValues(prev => ({
+                ...prev,
+                Symbol:     voiceData.symbol     || '',
+                Action:     voiceData.action?.toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
+                Quantity:   voiceData.quantity   || '',
+                EntryPrice: voiceData.entryPrice || '',
+                StopLoss:   voiceData.stopLoss   || '',
+                ExitPrice:  voiceData.takeProfit || '',
+                EntryDate:  voiceData.entryDate  || '',   // ✅ NEW
+                ExitDate:   voiceData.exitDate   || '',   // ✅ NEW
+                Account:    accountId            || prev.Account, // ✅ NEW
+            }));
+        }
     }, [voiceData]);
 
 

@@ -1,7 +1,9 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { AccountDropdown } from "components/common/dropdown/accountDropdown";
+
+const STORAGE_KEY = "tradix_pdf_preview";
 
 // Standardized broker list
 const BROKERS = [
@@ -14,33 +16,65 @@ const BROKERS = [
   "Other",
 ];
 
+// ─── helpers ──────────────────────────────────────────────────────────────────
+const savePreview = (data) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (_) {}
+};
+
+const loadPreview = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+};
+
+const clearPreview = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (_) {}
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function PdfImport() {
-  const [broker, setBroker] = useState("");
-  const [account, setAccount] = useState("");
-  const [file, setFile] = useState(null);
-  const [description, setDescription] = useState("");
-  const [status, setStatus] = useState("idle");
-  const [trades, setTrades] = useState([]);
-  const [summary, setSummary] = useState("");
+  // ── Restore persisted state on mount ──────────────────────────────────────
+  const persisted = loadPreview();
+
+  const [broker, setBroker] = useState(persisted?.broker || "");
+  const [account, setAccount] = useState(persisted?.account || "");
+  const [file, setFile] = useState(null); // File object can't be persisted
+  const [description, setDescription] = useState(persisted?.description || "");
+  const [status, setStatus] = useState(persisted?.trades?.length ? "success" : "idle");
+  const [trades, setTrades] = useState(persisted?.trades || []);
+  const [summary, setSummary] = useState(persisted?.summary || "");
   const [errorMsg, setErrorMsg] = useState("");
 
   const fileRef = useRef();
   const token = useSelector((state) => state.auth?.accessToken);
   const navigate = useNavigate();
 
+  // ── Persist whenever trades/summary/broker/account/description change ──────
+  useEffect(() => {
+    if (trades.length > 0) {
+      savePreview({ trades, summary, broker, account, description });
+    }
+  }, [trades, summary, broker, account, description]);
+
   const handleFile = (f) => {
     if (!f) return;
-
     if (f.type !== "application/pdf") {
       setErrorMsg("Only PDF files are supported.");
       return;
     }
-
     setErrorMsg("");
     setFile(f);
     setTrades([]);
     setSummary("");
     setStatus("idle");
+    clearPreview(); // clear old preview when a new file is chosen
   };
 
   const handleReset = () => {
@@ -52,6 +86,7 @@ export default function PdfImport() {
     setSummary("");
     setStatus("idle");
     setErrorMsg("");
+    clearPreview(); // ✅ wipe localStorage on reset
   };
 
   const handleSubmit = async () => {
@@ -75,9 +110,7 @@ export default function PdfImport() {
         `${process.env.REACT_APP_BASE_URL}/voice/parse-pdf`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
           credentials: "include",
           body: formData,
         }
@@ -91,10 +124,9 @@ export default function PdfImport() {
         setTrades(data.trades);
         setSummary(data.summary || "");
         setStatus("success");
+        // persisted via useEffect above
       } else {
-        setErrorMsg(
-          "No trades found in this PDF. Make sure it's a trade statement."
-        );
+        setErrorMsg("No trades found in this PDF. Make sure it's a trade statement.");
         setStatus("error");
       }
     } catch (err) {
@@ -120,6 +152,7 @@ export default function PdfImport() {
 
       if (!res.ok) throw new Error();
 
+      clearPreview(); // ✅ wipe localStorage after successful import
       navigate("/dashboard");
     } catch {
       setErrorMsg("Failed to import trades.");
@@ -138,13 +171,14 @@ export default function PdfImport() {
         </p>
       </div>
 
+      
+
       {/* Form Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
           <label className="block mb-2 text-sm font-medium dark:text-white">
             Select Broker
           </label>
-
           <select
             className="w-full p-2.5 rounded-lg border border-gray-300 
              text-gray-900 dark:text-white
@@ -164,7 +198,6 @@ export default function PdfImport() {
           <label className="block mb-2 text-sm font-medium dark:text-white">
             Select Account
           </label>
-
           <AccountDropdown
             label=""
             htmlName="account"
@@ -174,46 +207,46 @@ export default function PdfImport() {
         </div>
       </div>
 
-      {/* File Upload */}
-      <div className="mb-4">
-        <label className="block mb-2 text-sm font-medium dark:text-white">
-          Upload Your PDF File
-        </label>
+      {/* File Upload — only shown when no active preview */}
+      {status !== "success" && (
+        <>
+          <div className="mb-4">
+            <label className="block mb-2 text-sm font-medium dark:text-white">
+              Upload Your PDF File
+            </label>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf"
+              onChange={(e) => handleFile(e.target.files[0])}
+              className="block w-full text-sm 
+                 text-gray-900 dark:text-white
+                 border border-gray-300 
+                 rounded-lg cursor-pointer 
+                 bg-gray-50 dark:bg-gray-700 
+                 dark:border-gray-600"
+            />
+            {file && (
+              <p className="text-xs text-gray-400 mt-2">
+                Selected: {file.name} ({(file.size / 1024).toFixed(1)} KB)
+              </p>
+            )}
+          </div>
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".pdf"
-          onChange={(e) => handleFile(e.target.files[0])}
-          className="block w-full text-sm 
-             text-gray-900 dark:text-white
-             border border-gray-300 
-             rounded-lg cursor-pointer 
-             bg-gray-50 dark:bg-gray-700 
-             dark:border-gray-600"
-        />
-
-        {file && (
-          <p className="text-xs text-gray-400 mt-2">
-            Selected: {file.name} ({(file.size / 1024).toFixed(1)} KB)
-          </p>
-        )}
-      </div>
-
-      {/* Description */}
-      <div className="mb-4">
-        <label className="block mb-2 text-sm font-medium dark:text-white">
-          Description
-        </label>
-
-        <textarea
-          rows="4"
-          placeholder="Add Description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="block w-full p-2.5 text-sm text-gray-900 bg-gray-50 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600"
-        />
-      </div>
+          <div className="mb-4">
+            <label className="block mb-2 text-sm font-medium dark:text-white">
+              Description
+            </label>
+            <textarea
+              rows="4"
+              placeholder="Add Description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="block w-full p-2.5 text-sm text-gray-900 bg-gray-50 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600"
+            />
+          </div>
+        </>
+      )}
 
       {/* Error Message */}
       {errorMsg && (
@@ -231,14 +264,9 @@ export default function PdfImport() {
           >
             Reset
           </button>
-
           <button
-            className="px-5 py-2 
-             bg-white text-black 
-             rounded-lg 
-             hover:bg-gray-100
-             dark:bg-white dark:text-black
-             disabled:opacity-60"
+            className="px-5 py-2 bg-white text-black rounded-lg hover:bg-gray-100
+             dark:bg-white dark:text-black disabled:opacity-60"
             onClick={handleSubmit}
             disabled={status === "uploading" || status === "parsing"}
           >
@@ -265,7 +293,6 @@ export default function PdfImport() {
             <h3 className="font-semibold text-white">
               {trades.length} Trades Found
             </h3>
-
             <div className="flex gap-2">
               <button
                 className="px-4 py-2 border border-gray-500 rounded-lg text-white dark:text-white hover:bg-gray-700"
@@ -273,7 +300,6 @@ export default function PdfImport() {
               >
                 Cancel
               </button>
-
               <button
                 className="px-4 py-2 bg-primary-100 text-white rounded-lg"
                 onClick={handleImportAll}
@@ -296,7 +322,6 @@ export default function PdfImport() {
                   <th className="p-2 text-left dark:text-gray-300">Date</th>
                 </tr>
               </thead>
-
               <tbody>
                 {trades.map((t, i) => (
                   <tr key={i} className="border-t dark:border-gray-700 dark:bg-gray-800 hover:dark:bg-gray-700">

@@ -16,7 +16,7 @@ const Tracking = () => {
   const [tradeId, setTradeId] = useState(new URLSearchParams(useLocation().search).get('id'));
   const id = useSelector((state) => state.account?.selectedAccount?.AccountId);
 
-  const { data, isLoading, refetch } = useGetTradeStatisticsQuery({ id, tradeId }, {
+  const { data, refetch } = useGetTradeStatisticsQuery({ id, tradeId }, {
     refetchOnMountOrArgChange: true,
     skip: !id
   });

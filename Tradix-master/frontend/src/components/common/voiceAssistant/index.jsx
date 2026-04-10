@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
+import { setSelectedAccount, setSelectedCurrencySymbol } from "state/api/accounts/accountSlice";
 
 // ─── Route map for navigation commands ───────────────────────────────────────
 const ROUTE_MAP = {
@@ -16,6 +17,8 @@ const ROUTE_MAP = {
   "new trade": "/add-trade",
   "import trade": "/import-trades",
   "import trades": "/import-trades",
+  "pdf import": "/import-trades?tab=pdf",
+  "import pdf": "/import-trades?tab=pdf",
   settings: "/general-settings",
   "general settings": "/general-settings",
   accounts: "/settings/accounts",
@@ -41,11 +44,13 @@ export default function VoiceAssistant({ onTradeData }) {
 
   const recognitionRef = useRef(null);
   const feedbackTimerRef = useRef(null);
-  const silenceTimerRef = useRef(null);   // ✅ NEW: tracks silence
-  const finalTranscriptRef = useRef("");  // ✅ NEW: accumulates across pauses
+  const silenceTimerRef = useRef(null);
+  const finalTranscriptRef = useRef("");
   const rippleCountRef = useRef(0);
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const token = useSelector((state) => state.auth?.accessToken);
+  const accountInfo = useSelector((state) => state.account?.accountInfo || []);
 
   // ─── Init Speech Recognition ───────────────────────────────────────────────
   useEffect(() => {
@@ -138,17 +143,9 @@ export default function VoiceAssistant({ onTradeData }) {
   }, []);
 
   // ─── Process transcript after listening ends ───────────────────────────────
-  useEffect(() => {
-    if (status === "processing" && transcript) {
-      handleVoiceCommand(transcript);
-    } else if (status === "processing" && !transcript) {
-      setFeedback("Nothing heard. Try again.");
-      setStatus("idle");
-      autoReset(2000);
-    }
-  }, [status, transcript]);
+  
 
-  const autoReset = (delay = 3000) => {
+  const autoReset = useCallback((delay = 3000) => {
     clearTimeout(feedbackTimerRef.current);
     feedbackTimerRef.current = setTimeout(() => {
       setStatus("idle");
@@ -156,10 +153,33 @@ export default function VoiceAssistant({ onTradeData }) {
       setTranscript("");
       setIsExpanded(false);
     }, delay);
-  };
+  }, []);
+
+  // ─── Match account name from voice to accountInfo list ───────────────────
+  const matchAccount = useCallback((voiceAccountName) => {
+    if (!voiceAccountName || !accountInfo.length) return null;
+    const lower = voiceAccountName.toLowerCase().trim();
+    // exact match first
+    let match = accountInfo.find(a => a.AccountName.toLowerCase() === lower);
+    // then partial match
+    if (!match) match = accountInfo.find(a => a.AccountName.toLowerCase().includes(lower) || lower.includes(a.AccountName.toLowerCase()));
+    return match || null;
+  }, [accountInfo]);
+
+  // ─── Dispatch account selection ───────────────────────────────────────────
+  const selectAccount = useCallback((accountName) => {
+    const account = matchAccount(accountName);
+    if (account) {
+      const currencySymbol = account.Currency?.toString()?.charAt(0);
+      dispatch(setSelectedAccount(account));
+      dispatch(setSelectedCurrencySymbol(currencySymbol));
+      return account.AccountName;
+    }
+    return null;
+  }, [matchAccount, dispatch]);
 
   // ─── Send to backend API ───────────────────────────────────────────────────
-  const handleVoiceCommand = async (text) => {
+  const handleVoiceCommand = useCallback(async (text) => {
     try {
       const response = await fetch(`${process.env.REACT_APP_BASE_URL}/voice/parse`, {
         method: "POST",
@@ -174,19 +194,37 @@ export default function VoiceAssistant({ onTradeData }) {
       if (!response.ok) throw new Error("API error");
 
       const data = await response.json();
-      const { intent, route, tradeData, message } = data;
+      const { intent, route, tradeData, account, message } = data;
 
       if (intent === "navigate" && route && ROUTE_MAP[route]) {
         setStatus("success");
         setFeedback(`Navigating to ${route}…`);
         setTimeout(() => navigate(ROUTE_MAP[route]), 800);
         autoReset(2000);
+
+      } else if (intent === "select_account" && account) {
+        // ✅ Voice selected an account (e.g. "use kalpesh account")
+        const matched = selectAccount(account);
+        if (matched) {
+          setStatus("success");
+          setFeedback(`Account set to ${matched}!`);
+        } else {
+          setStatus("error");
+          setFeedback(`Account "${account}" not found.`);
+        }
+        autoReset(2500);
+
       } else if (intent === "log_trade" && tradeData) {
+        // ✅ Auto-select account if mentioned in trade command
+        if (tradeData.account) {
+          selectAccount(tradeData.account);
+        }
         setStatus("success");
         setFeedback("Trade details captured!");
         if (onTradeData) onTradeData(tradeData);
         setTimeout(() => navigate("/add-trade", { state: { voiceData: tradeData } }), 800);
         autoReset(2000);
+
       } else {
         setStatus("error");
         setFeedback(message || "Command not understood. Try again.");
@@ -197,7 +235,19 @@ export default function VoiceAssistant({ onTradeData }) {
       setFeedback("Server error. Check your connection.");
       autoReset(3000);
     }
-  };
+  }, [token, navigate, onTradeData, selectAccount, autoReset]);
+
+
+  useEffect(() => {
+    if (status === "processing" && transcript) {
+      handleVoiceCommand(transcript);
+    } else if (status === "processing" && !transcript) {
+      setFeedback("Nothing heard. Try again.");
+      setStatus("idle");
+      autoReset(2000);
+    }
+  }, [status, transcript, handleVoiceCommand, autoReset]);
+
 
   // ─── Toggle mic ───────────────────────────────────────────────────────────
   const toggleListening = useCallback(() => {
@@ -337,7 +387,7 @@ export default function VoiceAssistant({ onTradeData }) {
 
             {status === "idle" && !transcript && (
               <div className="va-hint">
-                Try: "buy 50 RELIANCE at 2400" or "go to analytics"
+                Try: "buy 50 RELIANCE at 2400 entry today" or "use kalpesh account"
               </div>
             )}
 

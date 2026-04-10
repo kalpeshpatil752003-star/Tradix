@@ -1,8 +1,8 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { NavigateTopLoader } from 'components/common/loader';
-// ✅ Fix
+
+
 import { MainLayout, Layout } from 'layouts/index.jsx';
 import routes from "./routes";
 
@@ -26,7 +26,7 @@ const PageRoute = () => {
 
   return (
     <BrowserRouter>
-      <Suspense fallback={<NavigateTopLoader />}>
+      <Suspense fallback={<div style={{ background: "#1e1e1e", width: "100vw", height: "100vh" }} />}>
         <Routes>
 
           {/* Public Routes */}

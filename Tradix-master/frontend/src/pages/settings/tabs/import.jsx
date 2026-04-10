@@ -1,15 +1,15 @@
 import React from 'react'
 import TabPanel from '../'
-import { DeleteButton } from 'components/common/buttons';
+
 import { DefaultTable } from 'components/common/table';
-import { ImportHistColumns, TagsColumns } from 'components/common/table/columns';
+import { ImportHistColumns } from 'components/common/table/columns';
 import { useGetImportTradeQuery } from 'state/api/trade/tradeApi';
-import { useDeleteTagMutation, useGetTagDetailsQuery } from 'state/api/tags/tagApi';
+
 
 const Imports = () => {
 
   // const { data, isLoading: isLoadingTag } = useGetTagDetailsQuery();
-  const { data, isLoading } = useGetImportTradeQuery();
+  const { data} = useGetImportTradeQuery();
   // console.log(data);
 
   return (

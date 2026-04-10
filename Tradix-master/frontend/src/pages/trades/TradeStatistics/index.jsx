@@ -8,7 +8,7 @@ import { TradeColumns } from 'components/common/table/data-table/columns';
 const TradeStatistics = () => {
 
     const id = useSelector((state) => state.account?.selectedAccount?.AccountId);
-    const { data, isLoading } = useGetTradeStatisticsQuery({ id }, {
+    const { data } = useGetTradeStatisticsQuery({ id }, {
         refetchOnMountOrArgChange: true,
         skip: !id
     });

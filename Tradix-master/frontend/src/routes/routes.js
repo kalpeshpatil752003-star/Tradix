@@ -1,8 +1,8 @@
 import React, { lazy } from "react";
 
 //Icons
-import { AiOutlineHome, AiOutlinePieChart, AiOutlinePlusCircle } from "react-icons/ai";
-import { BsFillBarChartLineFill, BsFillJournalBookmarkFill } from "react-icons/bs";
+import {  AiOutlinePieChart, AiOutlinePlusCircle } from "react-icons/ai";
+
 import { BiSolidDashboard } from "react-icons/bi";
 import { PiCellSignalNoneThin } from "react-icons/pi";
 import { MdOutlineLibraryBooks } from "react-icons/md";

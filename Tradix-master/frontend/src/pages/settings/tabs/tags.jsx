@@ -12,9 +12,9 @@ const Tags = () => {
 
   const navigate = useNavigate();
   const [showAddTags, setShowAddTags] = useState(false);
-  const { data, isLoading: isLoadingTag } = useGetTagDetailsQuery();
+  const { data,  } = useGetTagDetailsQuery();
 
-  const [deleteTag, { isLoading }] = useDeleteTagMutation();
+  const [deleteTag] = useDeleteTagMutation();
 
   const handleDeleteClick = async (TagId) => {
     try {

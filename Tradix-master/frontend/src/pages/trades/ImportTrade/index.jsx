@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom';
 import Dropdown from 'components/common/dropdown';
 import { SubmitButton, ResetButton } from 'components/common/buttons';
 import InputField from 'components/common/inputs/InputField';
@@ -12,20 +13,26 @@ const ImportTrade = () => {
 
   const [activeTab, setActiveTab] = useState("excel"); // "excel" | "pdf"
 
-  const initialValues = { account: '', broker: '', description: '', file: ''  };
-  const { values, errors, touched, isSubmitting, handleChange, handleSubmit, handleBlur, setFieldValue } = useFormik({
-      initialValues,
-      validationSchema: ImportSchema,
-      onSubmit: values => {
-          submitForm(values);
-      },
+  const location = useLocation();
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'pdf') setActiveTab('pdf');
+  }, [location.search]);
+
+  const initialValues = { account: '', broker: '', description: '', file: '' };
+  const { values, errors, touched, handleChange, handleSubmit, handleBlur, setFieldValue } = useFormik({
+    initialValues,
+    validationSchema: ImportSchema,
+    onSubmit: values => {
+      submitForm(values);
+    },
   });
 
   const handleFileChange = (event) => {
     setFieldValue('file', event.target.files[0]);
   };
 
-  const [importTrade, { isLoading }] = useImportTradeMutation();
+  const [importTrade] = useImportTradeMutation();
 
   const submitForm = async (formData) => {
     try {
@@ -61,10 +68,10 @@ const ImportTrade = () => {
         <div style={{ display: "flex", gap: 8, padding: 6, borderRadius: 10, width: "fit-content" }}
           className="bg-gray-800">
           <button className={`tab-btn ${activeTab === "excel" ? "active" : "inactive"}`} onClick={() => setActiveTab("excel")}>
-             Excel Import
+            Excel Import
           </button>
           <button className={`tab-btn ${activeTab === "pdf" ? "active" : "inactive"}`} onClick={() => setActiveTab("pdf")}>
-             PDF Import
+            PDF Import
           </button>
         </div>
 
@@ -108,14 +115,12 @@ const ImportTrade = () => {
           </div>
         )}
 
-        {/* PDF Import */}
-        {activeTab === "pdf" && (
-          <div className="flex">
-            <div className="w-full max-w-3xl p-6 mt-2 sm:p-8 bg-white rounded-lg shadow dark:bg-main-dark">
-              <PdfImport />
-            </div>
+        {/* PDF Import — always mounted so localStorage restore works on tab switch */}
+        <div className={`flex ${activeTab === "pdf" ? "" : "hidden"}`}>
+          <div className="w-full max-w-3xl p-6 mt-2 sm:p-8 bg-white rounded-lg shadow dark:bg-main-dark">
+            <PdfImport />
           </div>
-        )}
+        </div>
 
       </div>
     </>
