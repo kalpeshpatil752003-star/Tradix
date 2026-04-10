@@ -255,20 +255,20 @@ export default function PdfImport() {
       {status === "success" && trades.length > 0 && (
         <div className="mt-6">
           {summary && (
-            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="font-semibold text-green-700">Summary</p>
-              <p className="text-sm text-green-600">{summary}</p>
+            <div className="mb-4 p-4 rounded-lg" style={{background: "#052e16", border: "1px solid #166534"}}>
+              <p className="font-semibold" style={{color: "#4ade80"}}>Summary</p>
+              <p className="text-sm" style={{color: "#86efac"}}>{summary}</p>
             </div>
           )}
 
           <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold dark:text-white">
+            <h3 className="font-semibold text-white">
               {trades.length} Trades Found
             </h3>
 
             <div className="flex gap-2">
               <button
-                className="px-4 py-2 border border-gray-400 rounded-lg"
+                className="px-4 py-2 border border-gray-500 rounded-lg text-white dark:text-white hover:bg-gray-700"
                 onClick={handleReset}
               >
                 Cancel
@@ -287,30 +287,28 @@ export default function PdfImport() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-100 dark:bg-gray-800">
                 <tr>
-                  <th className="p-2 text-left">#</th>
-                  <th className="p-2 text-left">Symbol</th>
-                  <th className="p-2 text-left">Action</th>
-                  <th className="p-2 text-left">Qty</th>
-                  <th className="p-2 text-left">Entry</th>
-                  <th className="p-2 text-left">Exit</th>
-                  <th className="p-2 text-left">Date</th>
+                  <th className="p-2 text-left dark:text-gray-300">#</th>
+                  <th className="p-2 text-left dark:text-gray-300">Symbol</th>
+                  <th className="p-2 text-left dark:text-gray-300">Action</th>
+                  <th className="p-2 text-left dark:text-gray-300">Qty</th>
+                  <th className="p-2 text-left dark:text-gray-300">Entry</th>
+                  <th className="p-2 text-left dark:text-gray-300">Exit</th>
+                  <th className="p-2 text-left dark:text-gray-300">Date</th>
                 </tr>
               </thead>
 
               <tbody>
                 {trades.map((t, i) => (
-                  <tr key={i} className="border-t">
-                    <td className="p-2">{i + 1}</td>
-                    <td className="p-2 font-medium">{t.symbol || "-"}</td>
-                    <td className="p-2">
+                  <tr key={i} className="border-t dark:border-gray-700 dark:bg-gray-800 hover:dark:bg-gray-700">
+                    <td className="p-2 dark:text-gray-300">{i + 1}</td>
+                    <td className="p-2 font-medium dark:text-white">{t.symbol || "-"}</td>
+                    <td className={`p-2 font-semibold ${t.action?.toUpperCase() === "SELL" ? "text-red-500" : "text-green-500"}`}>
                       {t.action?.toUpperCase() || "BUY"}
                     </td>
-                    <td className="p-2">{t.quantity || "-"}</td>
-                    <td className="p-2">{t.entryPrice || "-"}</td>
-                    <td className="p-2">{t.exitPrice || "-"}</td>
-                    <td className="p-2 text-gray-400 text-xs">
-                      {t.date || "-"}
-                    </td>
+                    <td className="p-2 dark:text-gray-300">{t.quantity || "-"}</td>
+                    <td className="p-2 dark:text-gray-300">{t.entryPrice || "-"}</td>
+                    <td className="p-2 dark:text-gray-300">{t.exitPrice || "-"}</td>
+                    <td className="p-2 text-gray-400 text-xs">{t.date || "-"}</td>
                   </tr>
                 ))}
               </tbody>

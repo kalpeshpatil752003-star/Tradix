@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
+
 import dotenv from "dotenv";
 import TradeDetails from "../models/tradeDetails.js";
 import Accounts from "../models/accounts.js";
@@ -73,7 +74,7 @@ export const parsePdf = async (req, res) => {
     const pdfBuffer = fs.readFileSync(filePath);
     const base64Pdf = pdfBuffer.toString("base64");
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
     const result = await model.generateContent([
       {
