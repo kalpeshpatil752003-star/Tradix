@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
+import { PDFParse } from "pdf-parse";
 
 import dotenv from "dotenv";
 import TradeDetails from "../models/tradeDetails.js";
@@ -19,8 +20,8 @@ const callGeminiWithRetry = async (model, content, retries = 3) => {
       return await model.generateContent(content);
     } catch (err) {
       if (err.message.includes("503") && i < retries - 1) {
-        console.log(`Gemini busy, retrying in ${(i+1) * 2}s...`);
-        await new Promise(r => setTimeout(r, (i+1) * 2000));
+        console.log(`Gemini busy, retrying in ${(i + 1) * 2}s...`);
+        await new Promise(r => setTimeout(r, (i + 1) * 2000));
       } else {
         throw err;
       }
@@ -60,6 +61,25 @@ RULES:
 - Return ONLY valid JSON. No markdown, no backticks, no explanation.
 - If no trades found, return: { "trades": [], "summary": "No trades found in this document." }`;
 
+const parseZerodha = (text) => null;
+const parseAngelOne = (text) => null;
+const parseUpstox = (text) => null;
+
+function parseKnownBroker(pdfText, broker) {
+  if (!broker) return null;
+  const brokerName = broker.toLowerCase();
+  if (brokerName.includes("zerodha")) {
+    return parseZerodha(pdfText);
+  }
+  if (brokerName.includes("angel")) {
+    return parseAngelOne(pdfText);
+  }
+  if (brokerName.includes("upstox")) {
+    return parseUpstox(pdfText);
+  }
+  return null;
+}
+
 export const parsePdf = async (req, res) => {
   let filePath = null;
   try {
@@ -72,11 +92,26 @@ export const parsePdf = async (req, res) => {
 
     // Read PDF as base64
     const pdfBuffer = fs.readFileSync(filePath);
+
+    try {
+      const parser = new PDFParse({ data: pdfBuffer });
+      try {
+        const pdfData = await parser.getText();
+        const parsedTrades = parseKnownBroker(pdfData.text, broker);
+        if (parsedTrades) {
+          return res.status(200).json(parsedTrades);
+        }
+      } finally {
+        await parser.destroy();
+      }
+    } catch (parseErr) {
+      console.error("Rule-based parse error:", parseErr.message);
+    }
+
     const base64Pdf = pdfBuffer.toString("base64");
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
-
-    const result = await model.generateContent([
+    const result = await callGeminiWithRetry(model, [
       {
         inlineData: {
           mimeType: "application/pdf",
@@ -136,6 +171,13 @@ export const importPdfTrades = async (req, res) => {
     let successCount = 0;
     let failCount = 0;
 
+    // Get next TradeId
+    let lastIdDoc = await TradeDetails.findOne().sort('-TradeId');
+    let currentTradeId = lastIdDoc ? lastIdDoc.TradeId + 1 : 1;
+
+    const tradeDocuments = [];
+    const tradeContexts = [];
+
     for (const t of trades) {
       try {
         const Action = t.action?.toUpperCase() === "SELL" ? "SELL" : "BUY";
@@ -149,49 +191,69 @@ export const importPdfTrades = async (req, res) => {
         const TradeStatus = ExitPrice > 0 ? "Closed" : "Open";
         const TradeName = `${Symbol} ${Action}`;
 
-        // Get next TradeId
-        let lastId = await TradeDetails.findOne().sort('-TradeId');
-        const TradeId = lastId ? lastId.TradeId + 1 : 1;
+        const TradeId = currentTradeId++;
 
-        // Save trade
-        const newTrade = new TradeDetails({
+        const doc = {
           TradeId, TradeName, Market: "Stocks", Broker: "PDF Import",
-           // ✅ Fix
+          // ✅ Fix
           Setup: "PDF Import", TradeStatus, Action, Symbol,
           EntryDate, ExitDate, EntryPrice, ExitPrice,
           StopLoss: 0, Quantity, AccountId,
           UserId, CreatedBy: UserId,
-        });
+        };
 
-        const saved = await newTrade.save();
+        tradeDocuments.push(doc);
+        tradeContexts.push({ doc, Fees });
+      } catch (err) {
+        failCount++;
+      }
+    }
 
-        if (saved && TradeStatus === "Closed") {
-          // Calculate and save stats
-          const Stats = await CalculateTradeStats(Action, EntryPrice, ExitPrice, 0, Quantity, Fees, AccountId);
+    let insertedIds = new Set();
+    if (tradeDocuments.length > 0) {
+      try {
+        const result = await TradeDetails.insertMany(tradeDocuments, { ordered: false });
+        result.forEach(r => insertedIds.add(r.TradeId));
+      } catch (err) {
+        if (err.insertedDocs) {
+          err.insertedDocs.forEach(r => insertedIds.add(r.TradeId));
+        }
+        failCount += (tradeDocuments.length - insertedIds.size);
+      }
+    }
 
-          // Mock req/res for reusing existing controllers
+    const processTrade = async ({ doc, Fees }) => {
+      try {
+        if (doc.TradeStatus === "Closed") {
+          const Stats = await CalculateTradeStats(doc.Action, doc.EntryPrice, doc.ExitPrice, 0, doc.Quantity, Fees, AccountId);
+
           const mockReq = {
             body: {
-              TradeId, UserId, AccountId, Action, Symbol,
-              EntryPrice, ExitPrice, StopLoss: 0, Quantity,
-              Fees, TradeStatus, EntryDate, ExitDate,
+              TradeId: doc.TradeId, UserId: doc.UserId, AccountId: doc.AccountId, Action: doc.Action, Symbol: doc.Symbol,
+              EntryPrice: doc.EntryPrice, ExitPrice: doc.ExitPrice, StopLoss: 0, Quantity: doc.Quantity,
+              Fees, TradeStatus: doc.TradeStatus, EntryDate: doc.EntryDate, ExitDate: doc.ExitDate,
               Market: "Stocks", Broker: "PDF Import",
               Stats, TradeState: false, IsImport: true,
             }
           };
-          const mockRes = { status: () => ({ json: () => {} }) };
-          const mockNext = () => {};
+          const mockRes = { status: () => ({ json: () => { } }) };
+          const mockNext = () => { };
 
           await AddUpdateTradeStats(mockReq, mockRes, mockNext);
           await AddTradeJournal(mockReq, mockRes, mockNext);
         }
-
         successCount++;
       } catch (tradeErr) {
-        console.error("Error saving trade:", tradeErr.message);
+        console.error("Error processing trade stats/journal:", tradeErr.message);
         failCount++;
       }
-    }
+    };
+
+    const successfullyInsertedContexts = tradeContexts.filter(ctx => insertedIds.has(ctx.doc.TradeId));
+
+    await Promise.all(
+      successfullyInsertedContexts.map(trade => processTrade(trade))
+    );
 
     return res.status(200).json({
       success: true,

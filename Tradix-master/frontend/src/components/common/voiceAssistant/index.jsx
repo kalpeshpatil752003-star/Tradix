@@ -52,98 +52,9 @@ export default function VoiceAssistant({ onTradeData }) {
   const token = useSelector((state) => state.auth?.accessToken);
   const accountInfo = useSelector((state) => state.account?.accountInfo || []);
 
-  // ─── Init Speech Recognition ───────────────────────────────────────────────
-  useEffect(() => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setFeedback("Voice not supported in this browser. Use Chrome or Edge.");
-      setStatus("error");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;         // ✅ CHANGED: keep mic open
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => {
-      setStatus("listening");
-      setTranscript("");
-      finalTranscriptRef.current = "";
-      setFeedback("Listening… say your command, then pause or press Done.");
-    };
-
-    recognition.onresult = (e) => {
-      let interimText = "";
-      let newFinal = "";
-
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const result = e.results[i];
-        if (result.isFinal) {
-          newFinal += result[0].transcript + " ";
-        } else {
-          interimText += result[0].transcript;
-        }
-      }
-
-      // ✅ Accumulate final words; show interim in real-time
-      if (newFinal) {
-        finalTranscriptRef.current += newFinal;
-      }
-      const displayText = (finalTranscriptRef.current + interimText).trim();
-      setTranscript(displayText);
-
-      // ✅ Reset silence timer every time speech is detected
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(() => {
-        // User stopped talking for SILENCE_TIMEOUT_MS → auto-submit
-        if (recognitionRef.current) {
-          recognitionRef.current.stop();
-        }
-      }, SILENCE_TIMEOUT_MS);
-    };
-
-    recognition.onend = () => {
-      clearTimeout(silenceTimerRef.current);
-      setIsListening(false);
-      const finalText = finalTranscriptRef.current.trim();
-      if (finalText) {
-        setStatus("processing");
-        setFeedback("Processing…");
-        setTranscript(finalText);
-      } else {
-        setFeedback("Nothing heard. Try again.");
-        setStatus("idle");
-        autoReset(2000);
-      }
-    };
-
-    recognition.onerror = (e) => {
-      clearTimeout(silenceTimerRef.current);
-      // ✅ "no-speech" is not fatal when continuous=true, ignore it
-      if (e.error === "no-speech") return;
-      setIsListening(false);
-      setStatus("error");
-      setFeedback(
-        e.error === "not-allowed"
-          ? "Mic access denied."
-          : "Couldn't hear you. Try again."
-      );
-      autoReset(3000);
-    };
-
-    recognitionRef.current = recognition;
-    return () => {
-      clearTimeout(silenceTimerRef.current);
-      recognition.abort();
-    };
-  }, []);
-
-  // ─── Process transcript after listening ends ───────────────────────────────
-  
+  const sessionModeRef = useRef("background");
+  const activeWakeWordRef = useRef(null);
+  const canRestartRef = useRef(true);
 
   const autoReset = useCallback((delay = 3000) => {
     clearTimeout(feedbackTimerRef.current);
@@ -154,6 +65,178 @@ export default function VoiceAssistant({ onTradeData }) {
       setIsExpanded(false);
     }, delay);
   }, []);
+
+  // ─── Init Speech Recognition ───────────────────────────────────────────────
+  useEffect(() => {
+    let isUnmounted = false;
+
+    const initEngine = () => {
+      if (isUnmounted || !canRestartRef.current) return;
+
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        setFeedback("Voice not supported in this browser. Use Chrome or Edge.");
+        setStatus("error");
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        console.log("🟢 Voice API Started Listening!");
+      };
+
+      recognition.onresult = (e) => {
+        let interimText = "";
+        let newFinal = "";
+
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            newFinal += e.results[i][0].transcript + " ";
+          } else {
+            interimText += e.results[i][0].transcript;
+          }
+        }
+
+        if (newFinal) {
+          finalTranscriptRef.current += newFinal;
+        }
+        
+        const rawText = (finalTranscriptRef.current + interimText).trim();
+        if (!rawText) return;
+
+        if (sessionModeRef.current === "background") {
+          const rawLower = rawText.toLowerCase();
+          console.log("🤫 Background heard:", rawLower);
+          
+          const wakeWords = [
+            "hey tradix", "ok tradix", "okay tradix", "tradix",
+            "hey radix", "ok radix", "okay radix", "radix",
+            "hey tradex", "ok tradex", "okay tradex", "tradex",
+            "hey remix", "ok remix", "okay remix", "remix",
+            "trade x", "tradics", "tre dicks", "traddicks", "try dicts",
+            "hey ", "ok ", "okay "
+          ];
+          const detectedWakeWord = wakeWords.find((w) => rawLower.includes(w));
+
+          if (!detectedWakeWord) return;
+
+          sessionModeRef.current = "active";
+          activeWakeWordRef.current = detectedWakeWord;
+          
+          setIsExpanded(true);
+          setIsListening(true);
+          setStatus("listening");
+          setFeedback("Listening...");
+        }
+
+        let displayText = rawText;
+
+        if (activeWakeWordRef.current) {
+          const lower = displayText.toLowerCase();
+          const idx = lower.lastIndexOf(activeWakeWordRef.current);
+          if (idx !== -1) {
+            displayText = displayText.substring(idx + activeWakeWordRef.current.length).trim();
+          }
+        }
+
+        setTranscript(displayText);
+
+        clearTimeout(silenceTimerRef.current);
+        if (displayText !== "") {
+          silenceTimerRef.current = setTimeout(() => {
+            if (recognitionRef.current) recognitionRef.current.stop();
+          }, SILENCE_TIMEOUT_MS);
+        }
+      };
+
+      recognition.onend = () => {
+        clearTimeout(silenceTimerRef.current);
+        
+        const wasActive = sessionModeRef.current === "active";
+        const wakeWord = activeWakeWordRef.current;
+        
+        sessionModeRef.current = "background";
+        activeWakeWordRef.current = null;
+        setIsListening(false);
+
+        if (wasActive) {
+          let finalText = finalTranscriptRef.current.trim();
+          if (wakeWord) {
+            const lower = finalText.toLowerCase();
+            const idx = lower.lastIndexOf(wakeWord);
+            if (idx !== -1) {
+              finalText = finalText.substring(idx + wakeWord.length).trim();
+            }
+          }
+
+          if (finalText) {
+            setStatus("processing");
+            setFeedback("Processing…");
+            setTranscript(finalText);
+          } else {
+            setFeedback("Nothing heard. Try again.");
+            setStatus("idle");
+            autoReset(2000);
+          }
+        }
+
+        finalTranscriptRef.current = ""; 
+
+        // 🔄 RECREATE INSTANCE ON RESTART TO PREVENT CHROME BUG
+        if (canRestartRef.current && !isUnmounted) {
+          console.log("⏳ Restarting background listener in 500ms...");
+          setTimeout(() => {
+            initEngine(); 
+            try {
+              if (recognitionRef.current) recognitionRef.current.start();
+            } catch (e) {}
+          }, 500);
+        } else {
+          console.log("🛑 Background listener permanently stopped.");
+        }
+      };
+
+      recognition.onerror = (e) => {
+        clearTimeout(silenceTimerRef.current);
+        console.log("🔴 Voice Error:", e.error);
+        
+        if (e.error === "not-allowed") {
+          canRestartRef.current = false; 
+        }
+        
+        if (e.error === "no-speech") return;
+
+        const wasActive = sessionModeRef.current === "active";
+        
+        if (wasActive && e.error !== "aborted") {
+          setStatus("error");
+          setFeedback(
+            e.error === "not-allowed"
+              ? "Mic access denied."
+              : "Couldn't hear you. Try again."
+          );
+          autoReset(3000);
+        }
+      };
+
+      recognitionRef.current = recognition;
+    };
+
+    initEngine(); // Initial creation
+
+    return () => {
+      isUnmounted = true;
+      clearTimeout(silenceTimerRef.current);
+      recognitionRef.current?.abort();
+    };
+  }, [autoReset]);
 
   // ─── Match account name from voice to accountInfo list ───────────────────
   const matchAccount = useCallback((voiceAccountName) => {
@@ -252,18 +335,22 @@ export default function VoiceAssistant({ onTradeData }) {
 
   // ─── Toggle mic ───────────────────────────────────────────────────────────
   const toggleListening = useCallback(() => {
-    if (isListening) {
-      // ✅ "Done" button — manually stop and submit whatever was captured
+    if (sessionModeRef.current === "active") {
       clearTimeout(silenceTimerRef.current);
       recognitionRef.current?.stop();
-      setIsListening(false);
       return;
     }
 
     clearTimeout(feedbackTimerRef.current);
+    sessionModeRef.current = "active";
+    activeWakeWordRef.current = null;
     setIsExpanded(true);
     setIsListening(true);
-
+    setStatus("listening");
+    setFeedback("Listening… say your command, then pause or press Done.");
+    setTranscript("");
+    finalTranscriptRef.current = ""; // Clear old background text
+    
     // Add ripple
     const id = rippleCountRef.current++;
     setRipples((prev) => [...prev, id]);
@@ -271,13 +358,8 @@ export default function VoiceAssistant({ onTradeData }) {
 
     try {
       recognitionRef.current?.start();
-    } catch (e) {
-      setStatus("error");
-      setFeedback("Mic error. Refresh and try again.");
-      setIsListening(false);
-      autoReset(3000);
-    }
-  }, [isListening]);
+    } catch (e) {} // Ignore InvalidStateError if it's already running in background
+  }, []);
 
   // ─── Colors per status ─────────────────────────────────────────────────────
   const statusColors = {
