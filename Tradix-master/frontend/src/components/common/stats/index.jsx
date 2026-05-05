@@ -8,7 +8,7 @@ import { useSelector } from 'react-redux';
 
 const Statistics = () => {
 
-  const data = useSelector((state) => state.account?.stats, []);
+  const data = useSelector((state) => state.account?.stats);
 
   return (
     <div className="grid grid-rows-1 gap-7 mb-8 lg:grid-cols-4">

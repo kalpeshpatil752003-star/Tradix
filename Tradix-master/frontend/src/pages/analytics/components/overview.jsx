@@ -6,7 +6,7 @@ import TotalPnlChart from 'components/charts/TotalPnlChart';
 
 const Overview = () => {
 
-  const data = useSelector((state) => state.account?.stats, []);
+  const data = useSelector((state) => state.account?.stats);
   const { totalPnl, totalRevenue, totalReturns, totalTrades, totalProfit, totalLoss, averageTradePnl, maximumProfit, maximumLoss, totalCommissionsFees, profitFactor, totalRR } = data || [];
 
   return (

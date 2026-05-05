@@ -23,7 +23,7 @@ const WeeklyPnlChartOptions = {
 };
 
 const WeeklyPnlChart = () => {
-    const currency = useSelector((state) => state.account.selectedCurrency, []) || '';
+    const currency = useSelector((state) => state.account.selectedCurrency) || '';
     const id = useSelector((state) => state.account?.selectedAccount?.AccountId);
     const { data, isLoading } = useGetWeeklyPnlQuery(id, { refetchOnMountOrArgChange: true, skip: !id });
     const [series, setSeries] = useState([{ name: 'P&L', data: [] }]);

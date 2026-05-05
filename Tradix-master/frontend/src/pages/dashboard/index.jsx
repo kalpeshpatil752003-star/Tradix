@@ -9,7 +9,7 @@ import MonthlyPnlChart from 'components/charts/MonthlyPnlChart';
 
 const Dashboard = () => {
 
-    const data = useSelector((state) => state.account?.stats, []);
+    const data = useSelector((state) => state.account?.stats);
     const { netDailyPnl } = data || [];
 
     return (

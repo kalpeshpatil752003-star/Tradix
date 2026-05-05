@@ -16,7 +16,7 @@ export const Layout = () => {
     const pnlPopup = useSelector((state) => state.global.pnlPopup);
     const filterPopup = useSelector((state) => state.global.filterPopup);
 
-    const id = useSelector((state) => state.account?.selectedAccount?.AccountId, []);
+    const id = useSelector((state) => state.account?.selectedAccount?.AccountId);
     const { isLoading } = useGetStatisticsQuery(id, {
         refetchOnMountOrArgChange: true,
         skip: !id,

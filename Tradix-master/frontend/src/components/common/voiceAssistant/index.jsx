@@ -33,6 +33,18 @@ const ROUTE_MAP = {
 // ─── How long of silence (ms) before we auto-stop listening ──────────────────
 const SILENCE_TIMEOUT_MS = 2500; // 2.5 seconds of silence → auto-submit
 
+const cleanVoiceTranscript = (text) => {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\bin port\b/gi, "import")
+    .replace(/\bpdf inport\b/gi, "pdf import")
+    .replace(/\btrait\b/gi, "trade")
+    .replace(/\btraits\b/gi, "trades")
+    .replace(/\bpanel\b/gi, "pnl")
+    .replace(/\bzero the\b/gi, "zerodha")
+    .trim();
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function VoiceAssistant({ onTradeData }) {
   const [isListening, setIsListening] = useState(false);
@@ -45,7 +57,8 @@ export default function VoiceAssistant({ onTradeData }) {
   const recognitionRef = useRef(null);
   const feedbackTimerRef = useRef(null);
   const silenceTimerRef = useRef(null);
-  const finalTranscriptRef = useRef("");
+  const commandTranscriptRef = useRef("");
+  const activeTranscriptRef = useRef("");
   const rippleCountRef = useRef(0);
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -104,11 +117,12 @@ export default function VoiceAssistant({ onTradeData }) {
           }
         }
 
-        if (newFinal) {
-          finalTranscriptRef.current += newFinal;
-        }
-        
-        const rawText = (finalTranscriptRef.current + interimText).trim();
+        const heardText = cleanVoiceTranscript(`${newFinal} ${interimText}`);
+        if (!heardText && sessionModeRef.current !== "active") return;
+
+        const rawText = sessionModeRef.current === "active"
+          ? cleanVoiceTranscript(`${commandTranscriptRef.current} ${interimText}`)
+          : heardText;
         if (!rawText) return;
 
         if (sessionModeRef.current === "background") {
@@ -129,6 +143,13 @@ export default function VoiceAssistant({ onTradeData }) {
 
           sessionModeRef.current = "active";
           activeWakeWordRef.current = detectedWakeWord;
+
+          const wakeIndex = rawLower.lastIndexOf(detectedWakeWord);
+          commandTranscriptRef.current = cleanVoiceTranscript(
+            wakeIndex !== -1
+              ? rawText.substring(wakeIndex + detectedWakeWord.length)
+              : ""
+          );
           
           setIsExpanded(true);
           setIsListening(true);
@@ -136,16 +157,22 @@ export default function VoiceAssistant({ onTradeData }) {
           setFeedback("Listening...");
         }
 
-        let displayText = rawText;
-
-        if (activeWakeWordRef.current) {
-          const lower = displayText.toLowerCase();
-          const idx = lower.lastIndexOf(activeWakeWordRef.current);
-          if (idx !== -1) {
-            displayText = displayText.substring(idx + activeWakeWordRef.current.length).trim();
+        if (newFinal && sessionModeRef.current === "active") {
+          let finalChunk = newFinal;
+          if (activeWakeWordRef.current) {
+            const lower = finalChunk.toLowerCase();
+            const idx = lower.lastIndexOf(activeWakeWordRef.current);
+            if (idx !== -1) {
+              finalChunk = finalChunk.substring(idx + activeWakeWordRef.current.length);
+            }
           }
+          commandTranscriptRef.current = cleanVoiceTranscript(`${commandTranscriptRef.current} ${finalChunk}`);
         }
 
+        const displayText = cleanVoiceTranscript(`${commandTranscriptRef.current} ${interimText}`);
+        if (sessionModeRef.current === "active") {
+          activeTranscriptRef.current = displayText;
+        }
         setTranscript(displayText);
 
         clearTimeout(silenceTimerRef.current);
@@ -160,21 +187,12 @@ export default function VoiceAssistant({ onTradeData }) {
         clearTimeout(silenceTimerRef.current);
         
         const wasActive = sessionModeRef.current === "active";
-        const wakeWord = activeWakeWordRef.current;
-        
         sessionModeRef.current = "background";
         activeWakeWordRef.current = null;
         setIsListening(false);
 
         if (wasActive) {
-          let finalText = finalTranscriptRef.current.trim();
-          if (wakeWord) {
-            const lower = finalText.toLowerCase();
-            const idx = lower.lastIndexOf(wakeWord);
-            if (idx !== -1) {
-              finalText = finalText.substring(idx + wakeWord.length).trim();
-            }
-          }
+          const finalText = cleanVoiceTranscript(commandTranscriptRef.current || activeTranscriptRef.current);
 
           if (finalText) {
             setStatus("processing");
@@ -187,7 +205,8 @@ export default function VoiceAssistant({ onTradeData }) {
           }
         }
 
-        finalTranscriptRef.current = ""; 
+        commandTranscriptRef.current = "";
+        activeTranscriptRef.current = "";
 
         // 🔄 RECREATE INSTANCE ON RESTART TO PREVENT CHROME BUG
         if (canRestartRef.current && !isUnmounted) {
@@ -335,6 +354,15 @@ export default function VoiceAssistant({ onTradeData }) {
 
   // ─── Toggle mic ───────────────────────────────────────────────────────────
   const toggleListening = useCallback(() => {
+    if (!canRestartRef.current) {
+      setIsExpanded(true);
+      setIsListening(false);
+      setStatus("error");
+      setFeedback("Mic access is blocked. Allow microphone permission, then refresh.");
+      autoReset(5000);
+      return;
+    }
+
     if (sessionModeRef.current === "active") {
       clearTimeout(silenceTimerRef.current);
       recognitionRef.current?.stop();
@@ -349,7 +377,8 @@ export default function VoiceAssistant({ onTradeData }) {
     setStatus("listening");
     setFeedback("Listening… say your command, then pause or press Done.");
     setTranscript("");
-    finalTranscriptRef.current = ""; // Clear old background text
+    commandTranscriptRef.current = "";
+    activeTranscriptRef.current = "";
     
     // Add ripple
     const id = rippleCountRef.current++;
@@ -359,7 +388,7 @@ export default function VoiceAssistant({ onTradeData }) {
     try {
       recognitionRef.current?.start();
     } catch (e) {} // Ignore InvalidStateError if it's already running in background
-  }, []);
+  }, [autoReset]);
 
   // ─── Colors per status ─────────────────────────────────────────────────────
   const statusColors = {

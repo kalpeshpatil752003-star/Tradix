@@ -55,7 +55,7 @@ const WinrateChartOptions = {
 
 const WinrateChart = () => {
 
-    const data = useSelector((state) => state.account?.stats, []);
+    const data = useSelector((state) => state.account?.stats);
     const { winrate = 0 } = data;
 
     const [series] = useState([winrate]);

@@ -15,7 +15,7 @@ const Journal = () => {
         <>
             {
                 JournalDetails?.map((journalDetails) => (
-                    <JournalAccordion journal={journalDetails} />
+                    <JournalAccordion key={journalDetails.JournalId} journal={journalDetails} />
                 ))
             }
         </>

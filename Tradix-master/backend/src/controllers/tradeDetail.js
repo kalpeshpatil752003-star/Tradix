@@ -11,6 +11,64 @@ import { AddTradeJournal } from './tradeJournal.js';
 import { decrypt } from '../helpers/main.js';
 import { calculateFeesByExchange } from '../helpers/fees.js';
 
+const toNumber = (value, fallback = 0) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+};
+
+const recalculateJournalAfterDelete = async ({ journal, UserId, AccountId, TradeId, account }) => {
+    if (!journal) return;
+
+    const remainingTradeIds = (journal.TradeIds || []).filter(id => Number(id) !== Number(TradeId));
+
+    if (remainingTradeIds.length === 0) {
+        await TradeJournal.deleteOne({ UserId, AccountId, JournalId: journal.JournalId });
+        return;
+    }
+
+    const remainingStats = await TradeStats.find({
+        UserId,
+        AccountId,
+        TradeId: { $in: remainingTradeIds }
+    });
+
+    if (remainingStats.length === 0) {
+        await TradeJournal.deleteOne({ UserId, AccountId, JournalId: journal.JournalId });
+        return;
+    }
+
+    const totalNetPnL = remainingStats.reduce((sum, trade) => sum + toNumber(trade.NetPnL), 0);
+    const totalGrossPnL = remainingStats.reduce((sum, trade) => sum + toNumber(trade.GrossPnL), 0);
+    const totalFees = remainingStats.reduce((sum, trade) => sum + toNumber(trade.TotalFees), 0);
+    const totalRR = remainingStats.reduce((sum, trade) => sum + toNumber(trade.RiskReward), 0);
+    const totalWins = remainingStats.filter(trade => trade.TradeStatus === "WIN").length;
+    const totalLoss = remainingStats.filter(trade => trade.TradeStatus === "LOSS").length;
+    const initialBalance = toNumber(account?.InitialBalance);
+
+    await TradeJournal.updateOne(
+        { UserId, AccountId, JournalId: journal.JournalId },
+        {
+            $set: {
+                TradeIds: remainingTradeIds,
+                TotalNetPnL: Number(totalNetPnL.toFixed(2)),
+                TotalTrades: remainingStats.length,
+                TradeStatus: totalNetPnL > 0 ? "PROFIT" : totalNetPnL < 0 ? "LOSS" : "BREAKEVEN",
+                TotalWins: totalWins,
+                TotalLoss: totalLoss,
+                Winrate: Number(((totalWins / remainingStats.length) * 100).toFixed(2)),
+                TotalFees: Number(totalFees.toFixed(2)),
+                TotalGrossPnL: Number(totalGrossPnL.toFixed(2)),
+                TotalRR: Number(totalRR.toFixed(2)),
+                NetRevenue: Number(totalNetPnL.toFixed(2)),
+                GrossRevenue: Number((initialBalance + totalGrossPnL).toFixed(2)),
+                TotalRevenue: Number((initialBalance + totalNetPnL).toFixed(2)),
+                TotalRoi: initialBalance ? Number(((totalNetPnL / initialBalance) * 100).toFixed(2)) : 0,
+                UpdatedBy: UserId
+            }
+        }
+    );
+};
+
 /* Inserting/Updating TradeDetails */
 export const AddUpdateTrade = async (req, res, next) => {
     const errors = validationResult(req);
@@ -356,43 +414,33 @@ export const DeleteTrades = async (req, res) => {
     //Fetching Data Updating the TradeStats & Journal
     const tradeDetail = await TradeDetails.findOne(tradeFilter);
     const tradeStats = await TradeStats.findOne(tradeFilter);
+    const account = await Accounts.findOne({ UserId, AccountId });
+    const journal = TradeId ? await TradeJournal.findOne({ UserId, AccountId, "TradeIds": TradeId }) : null;
 
-    const prevNetPnl = parseInt(tradeStats?.NetPnL);
-    const updatedNetPnl = prevNetPnl >= 0 ? -prevNetPnl : Math.abs(prevNetPnl);
+    if (TradeId && !tradeDetail) {
+        return res.status(404).json({
+            success: false,
+            message: "Trade not found"
+        });
+    }
+
+    const prevNetPnl = toNumber(tradeStats?.NetPnL);
+    const balanceAdjustment = -prevNetPnl;
 
     await TradeDetails.deleteMany(tradeFilter);
     await TradeAddDetails.deleteMany(tradeFilter);
     await TradeStats.deleteMany(tradeFilter);
 
     if (TradeId) {
-        //Seaching TradeId's to Update/Delete TradeJournal
-        delete tradeFilter.TradeId;
-        const journal = await TradeJournal.findOne({ "TradeIds": TradeId });
-        const TradeIds = journal?.TradeIds;
-
-        //If there is only one TradeId Delete the tradeJournal
-        if (TradeIds?.length === 1) {
-            // Update the Account's Collection
-            const account = await Accounts.findOne({ AccountId });
-            const totalBalance = parseInt(account?.TotalBalance);
+        if (account && balanceAdjustment !== 0) {
             await Accounts.updateOne(
-                { AccountId },
-                {
-                    TotalBalance: (totalBalance + updatedNetPnl)
-                }
+                { UserId, AccountId },
+                { $inc: { TotalBalance: balanceAdjustment } }
             );
-            await TradeJournal.deleteOne({ ...tradeFilter, "TradeIds": TradeId });
         }
 
-        //Else Update it
-        else {
-            const updateJournal = await TradeJournal.updateOne({ ...tradeFilter, "TradeIds": TradeId }, { $pull: { TradeIds: TradeId } });
+        await recalculateJournalAfterDelete({ journal, UserId, AccountId, TradeId, account });
 
-            if (updateJournal) {
-                const currentStats = { netPnL: 0 };
-                await CalculateHandleJournal(TradeId, UserId, AccountId, currentStats, tradeDetail?.EntryDate, true, updatedNetPnl);
-            }
-        }
         return res.status(200).send({
             success: true,
             message: "Trade Deleted Successfully!!!"
@@ -400,6 +448,12 @@ export const DeleteTrades = async (req, res) => {
     }
     else {
         await TradeJournal.deleteMany(tradeFilter);
+        if (account) {
+            await Accounts.updateOne(
+                { UserId, AccountId },
+                { TotalBalance: account.InitialBalance }
+            );
+        }
         return true;
     }
 

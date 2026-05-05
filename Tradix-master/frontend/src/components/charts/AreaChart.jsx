@@ -3,7 +3,7 @@ import { useSelector } from 'react-redux';
 import ReactApexChart from 'react-apexcharts';
 
 const AreaChart = (props) => {
-    const currency = useSelector((state) => state.account.selectedCurrency, []) || '';
+    const currency = useSelector((state) => state.account.selectedCurrency) || '';
     const { color, height, data, seriesName } = props;
 
     const options = {

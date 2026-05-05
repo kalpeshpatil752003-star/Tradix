@@ -14,8 +14,8 @@ import { formatDate } from 'utils/index';
 const Calendar = () => {
 
     const dispatch = useDispatch();
-    const id = useSelector((state) => state.account?.selectedAccount?.AccountId, []);
-    const currency = useSelector((state) => state.account?.selectedCurrency, []) || '';
+    const id = useSelector((state) => state.account?.selectedAccount?.AccountId);
+    const currency = useSelector((state) => state.account?.selectedCurrency) || '';
     const { data, isLoading } = useGetJournalCalendarQuery(id, {
         refetchOnMountOrArgChange: true,
         skip: !id

@@ -5,7 +5,7 @@ import { setSelectedAccount, setSelectedCurrencySymbol } from 'state/api/account
 
 const AccountDropdown = (props) => {
 
-    const AccountInfo = useSelector((state) => state.account.accountInfo, []);
+    const AccountInfo = useSelector((state) => state.account.accountInfo);
 
     return (
         <>
@@ -28,7 +28,7 @@ const FilterAccountDropdown = (props) => {
 
     const { label, value } = props;
 
-    const AccountInfo = useSelector((state) => state.account.accountInfo, []);
+    const AccountInfo = useSelector((state) => state.account.accountInfo);
     const dispatch = useDispatch();
 
     const handleChange = (e) => {

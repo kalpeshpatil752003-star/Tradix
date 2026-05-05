@@ -21,7 +21,7 @@ const MonthlyPnlChartOptions = {
 };
 
 const MonthlyPnlChart = () => {
-    const currency = useSelector((state) => state.account.selectedCurrency, []) || '';
+    const currency = useSelector((state) => state.account.selectedCurrency) || '';
     const id = useSelector((state) => state.account?.selectedAccount?.AccountId);
     const { data, isLoading } = useGetMonthlyPnlQuery(id, { refetchOnMountOrArgChange: true, skip: !id });
     const [series, setSeries] = useState([{ name: 'Net Profit', data: [] }, { name: 'Revenue', data: [] }]);

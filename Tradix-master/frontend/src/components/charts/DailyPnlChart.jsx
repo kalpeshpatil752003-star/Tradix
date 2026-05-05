@@ -12,7 +12,7 @@ const areaChartOptions = {
 };
 
 const DailyPnlChart = () => {
-  const currency = useSelector((state) => state.account.selectedCurrency, []) || '';
+  const currency = useSelector((state) => state.account.selectedCurrency) || '';
   const id = useSelector((state) => state.account?.selectedAccount?.AccountId);
   const { data, isLoading } = useGetDailyPnlReturnsQuery(id, { refetchOnMountOrArgChange: true, skip: !id });
   const [series, setSeries] = useState([{ name: 'Daily P&L', data: [] }]);

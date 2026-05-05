@@ -6,7 +6,7 @@ import { useSelector } from 'react-redux';
 
 const Detailed = () => {
 
-  const data = useSelector((state) => state.account?.stats, []);
+  const data = useSelector((state) => state.account?.stats);
   const { netDailyPnl, totalReturns } = data || [];
 
   return (

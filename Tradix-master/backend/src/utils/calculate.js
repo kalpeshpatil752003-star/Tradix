@@ -9,26 +9,27 @@ export const CalculateTradeStats = async (Action, EntryPrice, ExitPrice, StopLos
     const account = await Accounts.findOne({ AccountId });
     const _capital = Number(parseFloat(account.TotalBalance).toFixed(2));
 
-    const _tradeStatus = EntryPrice < ExitPrice ? (Action === 'BUY' ? 'WIN' : 'LOSS') : (EntryPrice > ExitPrice ? (Action === 'SELL' ? 'WIN' : 'LOSS') : 'BREAKEVEN');
-    const _grossPnL = (_tradeStatus === 'WIN' && Action === 'SELL') ? Number(parseFloat((EntryPrice - ExitPrice) * Quantity).toFixed(2)) : (_tradeStatus === 'LOSS' && Action === 'SELL') ? Number(parseFloat((EntryPrice - ExitPrice) * Quantity).toFixed(2)) : Number(parseFloat((ExitPrice - EntryPrice) * Quantity).toFixed(2));
+    const _tradeStatus = ExitPrice > EntryPrice ? 'WIN' : (ExitPrice < EntryPrice ? 'LOSS' : 'BREAKEVEN');
+    const _grossPnL = Number(parseFloat((ExitPrice - EntryPrice) * Quantity).toFixed(2));
     const _netPnL = Number(parseFloat((_grossPnL - Fees)).toFixed(2));
-    const _tradeRisk = Number(parseFloat((EntryPrice - StopLoss) * Quantity + Fees).toFixed(2));
+    const _tradeRisk = Number(parseFloat(Math.abs(EntryPrice - StopLoss) * Quantity + Fees).toFixed(2));
     const _netProfit = Number(parseFloat(_tradeStatus === 'WIN' ? _netPnL : 0).toFixed(2));
     const _netLoss = Number(parseFloat(_tradeStatus === 'LOSS' ? _netPnL : 0).toFixed(2));
-    const riskReward = Number(parseFloat((ExitPrice - EntryPrice) / (EntryPrice - StopLoss)).toFixed(2));
+    const riskDenom = EntryPrice - StopLoss;
+    const riskReward = riskDenom !== 0 ? Number(parseFloat((ExitPrice - EntryPrice) / riskDenom).toFixed(2)) : 0;
 
     return {
         tradeStatus: _tradeStatus,
         netProfit: _netProfit,
         netLoss: _netLoss,
         netPnL: _netPnL,
-        netRoi: Number(parseFloat((_netPnL / _capital * 100).toFixed(2))),
+        netRoi: _capital !== 0 ? Number(parseFloat((_netPnL / _capital * 100).toFixed(2))) : 0,
         grossPnL: Number(parseFloat(_grossPnL).toFixed(2)),
         totalFees: Fees,
         tradeRisk: _tradeRisk,
         riskReward: riskReward
     };
-}
+};
 
 export const CalculateHandleJournal = async (TradeId, UserId, AccountId, currentStats, todaysDate, isUpdate, prevNetPnl) => {
 
